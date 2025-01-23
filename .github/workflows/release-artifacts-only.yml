@@ -1,0 +1,117 @@
+name: Release - Artifacts Only
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+    environment: Release
+
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-2022]
+        arch: [x64, arm64]
+        node-version: [20.x]
+        exclude:
+          - os: windows-2022
+            arch: arm64
+          - os: ubuntu-latest
+            arch: arm64
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Checkout submodules
+        shell: bash
+        run: |
+          git submodule update --init --remote backend/vcpkg
+          git submodule update --init --remote backend/extern/afv-native
+          git submodule update --init --remote backend/extern/libuiohook
+          cd backend/extern/afv-native
+          git checkout develop-trackaudio
+          cd ../libuiohook
+          git checkout unregister-hook-when-debugging
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+
+      - name: Install Python 3.x
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11.x'
+
+      - name: Update cmake
+        if: matrix.os != 'macos-latest'
+        run: |
+          pip install cmake
+          cmake --version
+
+      - name: Setup environment
+        if: matrix.os == 'macos-latest'
+        run: |
+          brew update
+          brew upgrade cmake
+          cmake --version
+
+      - name: Install SFML native dependencies
+        if: matrix.os == 'ubuntu-latest' && matrix.arch == 'x64'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libx11-dev libxrandr-dev libxcursor-dev libxi-dev libudev-dev libgl1-mesa-dev pkg-config libxtst-dev libxinerama-dev libx11-xcb-dev libxkbcommon-dev libxkbcommon-x11-dev libxkbfile-dev libxt-dev
+
+      - name: Install dependencies and building backend (x64)
+        if: matrix.arch == 'x64'
+        run: |
+          npm -g i cmake-js
+          cd backend/
+          npm install
+          cmake-js compile -B Release -a x64
+          node custom_build.mjs
+          npm pack
+          cd ..
+          npm install ./backend/trackaudio-afv-1.0.0.tgz
+          npm install
+
+      - name: Install dependencies and building backend (macOs arm64)
+        if: matrix.arch == 'arm64' && matrix.os == 'macos-latest'
+        run: |
+          npm -g i cmake-js
+          cd backend/
+          npm install
+          cmake-js compile -B Release -a arm64
+          node custom_build.mjs
+          npm pack
+          cd ..
+          npm install ./backend/trackaudio-afv-1.0.0.tgz
+          npm install
+
+      - name: Package app
+        if: matrix.os == 'windows-2022'
+        shell: bash
+        run: npm run build:win
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Package app
+        if: matrix.os == 'macos-latest'
+        shell: bash
+        run: npm run build:mac -- --${{ matrix.arch }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Package app
+        if: matrix.os == 'ubuntu-latest'
+        shell: bash
+        run: npm run build:linux
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: TrackAudio-${{ matrix.os }}-${{ matrix.arch }}
+          path: dist/trackaudio-*.*
