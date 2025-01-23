@@ -11,10 +11,10 @@
 
 // Constants
 #define TIMER_CALLBACK_INTERVAL_SEC 15
-#define SLURPER_BASE_URL "https://slurper.vatsim.net"
-#define SLURPER_DATA_ENDPOINT "/users/info/"
-#define VERSION_CHECK_BASE_URL "https://raw.githubusercontent.com"
-#define VERSION_CHECK_ENDPOINT "/pierr3/TrackAudio/main/MANDATORY_VERSION"
+#define SLURPER_BASE_URL "https://iuvd0uvfqf.execute-api.us-west-1.amazonaws.com"
+#define SLURPER_DATA_ENDPOINT "/main"
+#define VERSION_CHECK_BASE_URL "https://iuvd0uvfqf.execute-api.us-west-1.amazonaws.com"
+#define VERSION_CHECK_ENDPOINT "/main/version"
 #define OBS_FREQUENCY 199998000 // 199.998
 #define UNICOM_FREQUENCY 122800000 // 122.800
 #define GUARD_FREQUENCY 121500000 // 121.500
