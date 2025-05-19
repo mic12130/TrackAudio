@@ -431,15 +431,19 @@ app
     console.log(`Error initializing app: ${err.message}`);
   });
 
+app.on('before-quit', () => {
+  // Perform cleanup
+  if (TrackAudioAfv.IsConnected()) {
+    TrackAudioAfv.Disconnect();
+  }
+  TrackAudioAfv.Exit();
+});
+
 // Quit when all windows are closed, except on macOS. There, it's common
 // for applications and their menu bar to stay active until the user quits
 // explicitly with Cmd + Q.
 app.on('window-all-closed', () => {
   app.quit();
-});
-
-app.on('quit', () => {
-  TrackAudioAfv.Exit();
 });
 
 /**
@@ -578,7 +582,10 @@ ipcMain.handle(
   }
 );
 
-ipcMain.handle('audio-remove-frequency', (_, frequency: number) => {
+ipcMain.handle('audio-remove-frequency', (_, frequency: number, callsign?: string) => {
+  if (callsign) {
+    TrackAudioAfv.RemoveFrequency(frequency, callsign);
+  }
   TrackAudioAfv.RemoveFrequency(frequency);
 });
 
@@ -586,6 +593,7 @@ ipcMain.handle(
   'audio-set-frequency-state',
   (
     _,
+    callsign: string,
     frequency: number,
     rx: boolean,
     tx: boolean,
@@ -596,6 +604,7 @@ ipcMain.handle(
     outputVolume?: number
   ) => {
     return TrackAudioAfv.SetFrequencyState(
+      callsign,
       frequency,
       rx,
       tx,
@@ -635,6 +644,10 @@ ipcMain.handle('clear-ptt', (_, pttIndex: number) => {
 ipcMain.handle('set-main-radio-volume', (_, mainRadioVolume: number) => {
   configManager.updateConfig({ mainRadioVolume });
   TrackAudioAfv.SetMainRadioVolume(mainRadioVolume);
+});
+
+ipcMain.handle('set-update-channel', (_, channel: string) => {
+  configManager.updateConfig({ updateChannel: channel });
 });
 
 ipcMain.handle('set-frequency-radio-volume', (_, frequency: number, stationVolume: number) => {
@@ -687,16 +700,25 @@ ipcMain.handle('restart', () => {
 });
 
 ipcMain.on('check-for-updates', (event) => {
-  if (process.platform === 'win32') {
+  if (process.platform !== 'win32') {
     event.reply('update-not-available');
     return;
   }
 
   if (app.isPackaged) {
-    updater.autoUpdater.autoInstallOnAppQuit = false;
-    updater.autoUpdater.checkForUpdatesAndNotify().catch(() => {
-      console.error(`Error checking for updates`);
-    });
+    if (
+      configManager.config.updateChannel !== 'beta' &&
+      configManager.config.updateChannel !== 'stable'
+    ) {
+      event.reply('update-not-available');
+      console.error("Invalid update channel, can't check for updates");
+      return;
+    }
+    // updater.autoUpdater.channel = configManager.config.updateChannel;
+    // updater.autoUpdater.autoInstallOnAppQuit = false;
+    // updater.autoUpdater.checkForUpdatesAndNotify().catch(() => {
+    //   console.error(`Error checking for updates`);
+    // });
   } else {
     event.reply('update-not-available');
   }

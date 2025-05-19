@@ -1,5 +1,5 @@
 import clsx from 'clsx';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { AudioApi, AudioDevice } from 'trackaudio-afv';
 import { useDebouncedCallback } from 'use-debounce';
 
@@ -9,6 +9,8 @@ import useUtilStore from '../../store/utilStore';
 import AudioApis from './audio-apis';
 import AudioInput from './audio-input';
 import AudioOutputs from './audio-outputs';
+import { Info } from 'lucide-react';
+import { OverlayTrigger, Tooltip } from 'react-bootstrap';
 export interface SettingsModalProps {
   closeModal: () => void;
 }
@@ -34,6 +36,10 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ closeModal }) => {
 
   const [pttIsOn] = useRadioState((state) => [state.pttIsOn]);
 
+  const [platform] = useUtilStore((state) => [state.platform]);
+
+  const isWindows = platform === 'win32';
+
   const [
     vu,
     vuPeak,
@@ -46,10 +52,12 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ closeModal }) => {
     updatePtt2KeySet,
     showExpandedRxInfo,
     radioToMaxVolumeOnTX,
+    updateChannel,
     setShowExpandedRxInfo,
     setTransparentMiniMode,
     setPendingRestart,
-    setRadioToMaxVolumeOnTX
+    setRadioToMaxVolumeOnTX,
+    setUpdateChannel
   ] = useUtilStore((state) => [
     state.vu,
     state.peakVu,
@@ -62,10 +70,12 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ closeModal }) => {
     state.updatePtt2KeySet,
     state.showExpandedRxInfo,
     state.radioToMaxVolumeOnTX,
+    state.updateChannel,
     state.setShowExpandedRxInfo,
     state.setTransparentMiniMode,
     state.setPendingRestart,
-    state.setRadioToMaxVolumeOnTX
+    state.setRadioToMaxVolumeOnTX,
+    state.setUpdateChannel
   ]);
   const [isMicTesting, setIsMicTesting] = useState(false);
 
@@ -78,11 +88,12 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ closeModal }) => {
         setPassword(config.password);
         setRadioEffects(config.radioEffects);
         setHardwareType(config.hardwareType);
-        setAlwaysOnTop(config.alwaysOnTop as AlwaysOnTopMode); // Type assertion since the config will never be a boolean at this point
+        setAlwaysOnTop(config.alwaysOnTop as AlwaysOnTopMode);
         setShowExpandedRxInfo(config.showExpandedRx);
         setTransparentMiniMode(config.transparentMiniMode);
         setLocalTransparentMiniMode(config.transparentMiniMode);
         setRadioToMaxVolumeOnTX(config.radioToMaxVolumeOnTx);
+        setUpdateChannel(config.updateChannel);
       })
       .catch((err: unknown) => {
         console.error(err);
@@ -235,6 +246,16 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ closeModal }) => {
     void window.api.SetupPtt(pttIndex, shouldListenForJoysticks);
   };
 
+  const handleUpdateChannelChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    if ((e.target.value !== 'stable' && e.target.value !== 'beta') || !isWindows) {
+      return;
+    }
+    void window.api.SetUpdateChannel(e.target.value);
+    setPendingRestart(true);
+    setUpdateChannel(e.target.value);
+    setChangesSaved(SaveStatus.Saved);
+  };
+
   const handleClearPtt = (pttIndex: number) => {
     if (pttIndex === 1 && ptt2KeyName !== 'Not Set') {
       return;
@@ -284,6 +305,48 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ closeModal }) => {
     setIsMicTesting(false);
     closeModal();
   };
+
+  const isSpeakerDeviceValid = useMemo(() => {
+    return (
+      config.speakerOutputDeviceId &&
+      audioOutputDevices.some((device) => device.id === config.speakerOutputDeviceId)
+    );
+  }, [audioOutputDevices, config.speakerOutputDeviceId]);
+  const isHeadsetDeviceValid = useMemo(() => {
+    return (
+      config.headsetOutputDeviceId &&
+      audioOutputDevices.some((device) => device.id === config.headsetOutputDeviceId)
+    );
+  }, [audioOutputDevices, config.headsetOutputDeviceId]);
+  const isInputDeviceValid = useMemo(() => {
+    return (
+      config.audioInputDeviceId &&
+      audioInputDevices.some((device) => device.id === config.audioInputDeviceId)
+    );
+  }, [audioInputDevices, config.audioInputDeviceId]);
+
+  const renderRadioTooltip = (props) => (
+    <Tooltip id="button-tooltip" {...props}>
+      <div className="text-white">
+        <p>
+          <strong>Schmid ED-137B:</strong>
+          <br />
+          Clear audio with slight distortion, emphasising lower frequencies.
+        </p>
+        <p>
+          <strong>Rockwell Collins 2100:</strong>
+          <br />
+          Typical radio-like distortion, commonly used in Boeing and Airbus aircraft (resembles the
+          &quot;Realistic ATC Audio Effect&quot; in the older AFV for Windows client).
+        </p>
+        <p>
+          <strong>Garex 220:</strong> <br />
+          Similar to the Schmid ED-137B, but with slightly less distortion and a greater emphasis on
+          higher frequencies.
+        </p>
+      </div>
+    </Tooltip>
+  );
 
   return (
     <>
@@ -341,8 +404,14 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ closeModal }) => {
                       <option value="output">Output only</option>
                       <option value="off">Off</option>
                     </select>
-
-                    <label className="mt-2">Radio hardware</label>
+                    <div className="d-flex justify-content-between align-items-center mt-2">
+                      <label>Radio hardware</label>
+                      <OverlayTrigger placement="right" overlay={renderRadioTooltip}>
+                        <button type="button" className="info-icon">
+                          <Info size={13} />
+                        </button>
+                      </OverlayTrigger>
+                    </div>
                     <select
                       id=""
                       className="form-control mt-1"
@@ -377,13 +446,27 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ closeModal }) => {
                       <option value="true">Always</option>
                       <option value="false">Never</option>
                     </select>
+
+                    {isWindows && (
+                      <>
+                        <label className="mt-2">Release channel</label>
+                        <select
+                          id=""
+                          className="form-control mt-1"
+                          onChange={handleUpdateChannelChange}
+                          value={updateChannel.toString()}
+                        >
+                          <option value="stable">Stable</option>
+                          <option value="beta">Beta</option>
+                        </select>
+                      </>
+                    )}
                   </div>
                 </div>
               </div>
               <div className="col-6" style={{ float: 'right' }}>
                 <div className="form-group">
                   <h5>Audio configuration</h5>
-
                   <label className="mt-2">Audio API</label>
                   <AudioApis
                     apis={audioApis}
@@ -392,7 +475,10 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ closeModal }) => {
                       changeAudioApi(apiId);
                     }}
                   />
-                  <label className="mt-2">Headset device</label>
+                  <label className={`mt-2 ${!isHeadsetDeviceValid ? 'text-danger' : ''}`}>
+                    Headset device
+                    {!isHeadsetDeviceValid ? ' (*)' : ''}
+                  </label>
                   <AudioOutputs
                     devices={audioOutputDevices}
                     selectedDeviceId={config.headsetOutputDeviceId}
@@ -400,7 +486,10 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ closeModal }) => {
                       setHeadsetDevice(device.id);
                     }}
                   />
-                  <label className="mt-2">Speaker device</label>
+                  <label className={`mt-2 ${!isSpeakerDeviceValid ? 'text-danger' : ''}`}>
+                    Speaker device
+                    {!isSpeakerDeviceValid ? ' (*)' : ''}
+                  </label>
                   <AudioOutputs
                     devices={audioOutputDevices}
                     selectedDeviceId={config.speakerOutputDeviceId}
@@ -408,7 +497,10 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ closeModal }) => {
                       setSpeakerDevice(device.id);
                     }}
                   />
-                  <label className="mt-2">Input device</label>
+                  <label className={`mt-2 ${!isInputDeviceValid ? 'text-danger' : ''}`}>
+                    Input device
+                    {!isInputDeviceValid ? ' (*)' : ''}
+                  </label>
                   <AudioInput
                     devices={audioInputDevices}
                     selectedDeviceId={config.audioInputDeviceId}
